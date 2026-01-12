@@ -4,14 +4,17 @@ import { router } from 'expo-router';
 import { Formik } from 'formik';
 import { Mail, Sparkles } from 'lucide-react-native';
 import React from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Yup from 'yup';
 
 import Box from '@/components/ui/Box';
 import CustomText from '@/components/ui/CustomText';
 import CustomTextInput from '@/components/ui/TextInput';
+import { useUserAuth } from '@/hooks/useUserAuth';
+import { setEmail } from '@/states/slices/otp.reducer';
 import { Theme } from '@/utils/theme';
+import { useDispatch } from 'react-redux';
 
 const LoginSchema = Yup.object().shape({
   email: Yup.string().email('Invalid email').required('Required'),
@@ -19,6 +22,10 @@ const LoginSchema = Yup.object().shape({
 
 const Signup = () => {
   const theme = useTheme<Theme>();
+  const dispatch = useDispatch();
+  const { signup } = useUserAuth();
+
+  const { mutateAsync, isPending } = signup;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.secondaryBackgroundColor }}>
@@ -43,10 +50,21 @@ const Signup = () => {
             validationSchema={LoginSchema}
             onSubmit={(values) => {
                 console.log(values);
-                // Handle login logic here
+                // make API call
+                mutateAsync({
+                    body: {
+                        email: values.email,
+                    }
+                }).then((res) => {
+                    console.log(res);
+                    dispatch(setEmail(values.email));
+                    router.push('/(auth)/verify-signup-otp');
+                }).catch((e) => {
+                    console.log(e);
+                });
             }}
         >
-            {({ handleSubmit, values, handleChange }) => (
+            {({ handleSubmit }) => (
                 <Box>
                     <CustomText variant="body" style={{ marginBottom: 8, fontWeight: '600' }}>Email</CustomText>
                     <CustomTextInput 
@@ -76,7 +94,8 @@ const Signup = () => {
                                 elevation: 5
                             }}
                         >
-                            <CustomText style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>Sign In</CustomText>
+                            {isPending && <ActivityIndicator color={theme.colors.primaryColor} size={'small'} />}
+                            {!isPending && <CustomText style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>Sign Up</CustomText>}
                         </LinearGradient>
                     </TouchableOpacity>
                 </Box>

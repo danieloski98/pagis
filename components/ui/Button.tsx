@@ -1,55 +1,87 @@
-import React from 'react';
-import { ActivityIndicator, DimensionValue, Pressable } from 'react-native';
-import CustomText from './CustomText';
+import { LinearGradient } from "expo-linear-gradient";
+import React from "react";
+import {
+  ActivityIndicator,
+  DimensionValue,
+  TouchableOpacity,
+} from "react-native";
+import CustomText from "./CustomText";
 
-type BtnType = 'FLAT'|'OUTLINE';
+type BtnType = "FLAT" | "OUTLINE";
 
 interface IProps {
-    title: string;
-    width?: DimensionValue;
-    height?: DimensionValue;
-    onPress: () => void;
-    backgroundColor?: string;
-    color?: string;
-    borderWidth?: number;
-    borderRadius?: number;
-    type?: BtnType;
-    isLoading?: boolean;
+  title: string;
+  width?: DimensionValue;
+  height?: DimensionValue;
+  onPress: () => void;
+  backgroundColor?: string;
+  color?: string;
+  borderWidth?: number;
+  borderRadius?: number;
+  type?: BtnType;
+  isLoading?: boolean;
+  gradientColors?: [string, string, ...string[]];
+  disabled?: boolean;
 }
 
 const Button = ({
-    title,
-    width = '100%',
-    height = 45,
-    onPress,
-    backgroundColor = 'blue',
-    color = 'white',
-    borderWidth = 0,
-    borderRadius = 8,
-    type = 'FLAT',
-    isLoading = false,
+  title,
+  width = "100%",
+  height = 56,
+  onPress,
+  color = "white",
+  borderRadius = 16,
+  isLoading = false,
+  disabled = false,
+  gradientColors = ["#C27AFF", "#51A2FF"],
 }: IProps) => {
-  return (
-    <Pressable 
-    onPress={onPress}
-    style={{
-        width,
-        height,
-        backgroundColor,
-        borderWidth,
-        borderRadius,
-        justifyContent: 'center',
-        alignItems: 'center'
-    }}>
-        {isLoading ? (
-            <ActivityIndicator color={color} />
-        ) : (
-            <CustomText style={{
-                color,
-            }}>{title}</CustomText>
-        )}  
-    </Pressable>
-  )
-}
+  const isDisabled = disabled || isLoading;
 
-export default Button
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.8}
+      disabled={isDisabled}
+      style={{
+        width,
+        shadowColor: isDisabled ? "transparent" : "#51A2FF",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: isDisabled ? 0 : 0.3,
+        shadowRadius: 8,
+        elevation: isDisabled ? 0 : 5,
+        marginTop: 20,
+        marginBottom: 24,
+        opacity: isDisabled ? 0.6 : 1,
+      }}
+    >
+      <LinearGradient
+        colors={gradientColors}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={{
+          height,
+          borderRadius,
+          justifyContent: "center",
+          alignItems: "center",
+          width: "100%",
+        }}
+      >
+        {isLoading ? (
+          <ActivityIndicator color={color} />
+        ) : (
+          <CustomText
+            style={{
+              color,
+              fontWeight: "bold",
+              fontSize: 16,
+            }}
+          >
+            {title}
+          </CustomText>
+        )}
+      </LinearGradient>
+    </TouchableOpacity>
+  );
+};
+
+export default Button;
