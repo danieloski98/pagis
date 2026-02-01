@@ -15,12 +15,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Box from "@/components/ui/Box";
 import CustomText from "@/components/ui/CustomText";
 import { useUserAuth } from "@/hooks/useUserAuth";
-import { TOKEN_KEY } from "@/modules/repositories/api-client";
 import { RootState } from "@/states";
 import { setToken } from "@/states/slices/token.reducer";
 import { updateDetails } from "@/states/slices/user.reducer";
 import { Theme } from "@/utils/theme";
-import * as SecureStore from "expo-secure-store";
 import { useDispatch, useSelector } from "react-redux";
 import { Toast } from "toastify-react-native";
 
@@ -128,7 +126,7 @@ const OtpVerificationScreen = ({ onVerified }: IProps) => {
         // Dispatch action to update user state
         dispatch(updateDetails(data?.data?.user));
         dispatch(setToken(data?.data?.access_token));
-        SecureStore.setItemAsync(TOKEN_KEY, data?.data?.access_token || "");
+        // SecureStore.setItemAsync(TOKEN_KEY, data?.data?.access_token || "");
         onVerified();
       })
       .catch(() => {

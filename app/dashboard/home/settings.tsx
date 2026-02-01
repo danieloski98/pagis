@@ -1,4 +1,5 @@
 import CustomText from "@/components/ui/CustomText";
+import { darkModeAtom } from "@/states/atoms/dark-mode-state";
 import { Theme } from "@/utils/theme";
 import { initials } from "@dicebear/collection";
 import { createAvatar } from "@dicebear/core";
@@ -11,6 +12,7 @@ import {
   Moon,
   Notification,
 } from "iconsax-react-nativejs";
+import { useAtom } from "jotai";
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -21,6 +23,11 @@ const Box = createBox<Theme>();
 const Settings = () => {
   const theme = useTheme<Theme>();
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useAtom(darkModeAtom);
+
+  const handleToggleDarkMode = () => {
+    setDarkMode(!darkMode);
+  };
 
   const avatar = useMemo(() => {
     return createAvatar(initials, {
@@ -284,8 +291,8 @@ const Settings = () => {
                   </CustomText>
                 </Box>
                 <Switch
-                  value={isDarkMode}
-                  onValueChange={setIsDarkMode}
+                  value={darkMode}
+                  onValueChange={handleToggleDarkMode}
                   trackColor={{
                     false: "#767577",
                     true: theme.colors.primaryColor,

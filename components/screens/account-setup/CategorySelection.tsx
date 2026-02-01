@@ -7,11 +7,13 @@ import { setCategory } from "@/states/slices/account-setup-reducer";
 import { Theme } from "@/utils/theme";
 import { identicon } from "@dicebear/collection";
 import { createAvatar } from "@dicebear/core";
-import { useTheme } from "@shopify/restyle";
+import { createBox, useTheme } from "@shopify/restyle";
 import React, { useMemo } from "react";
-import { ActivityIndicator, Pressable } from "react-native";
+import { ActivityIndicator, Pressable, PressableProps } from "react-native";
 import { SvgXml } from "react-native-svg";
 import { useDispatch, useSelector } from "react-redux";
+
+const PressableBox = createBox<Theme, PressableProps>(Pressable);
 
 const CategoryCard = ({ name, _id }: Category) => {
   const activeId = useSelector(
@@ -39,28 +41,23 @@ const CategoryCard = ({ name, _id }: Category) => {
   }, [name]);
 
   return (
-    <Pressable
+    <PressableBox
       onPress={handleSelectCategory}
-      style={{
-        borderWidth: 2,
-        borderRadius: 16,
-        width: "100%",
-        height: 68,
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 16,
-        overflow: "hidden",
-        borderColor:
-          activeId === _id
-            ? theme.colors.primaryColor
-            : theme.colors.borderColor,
-      }}
+      borderWidth={2}
+      borderRadius={16}
+      width="100%"
+      height={68}
+      flexDirection="row"
+      alignItems="center"
+      marginBottom="m"
+      overflow="hidden"
+      borderColor={activeId === _id ? "primaryColor" : "borderColor"}
     >
       {generateSVG}
       <CustomText variant="body" ml="s">
         {name}
       </CustomText>
-    </Pressable>
+    </PressableBox>
   );
 };
 

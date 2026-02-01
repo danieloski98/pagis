@@ -1,13 +1,16 @@
-import { View, Text } from 'react-native'
-import React from 'react'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import Editor from "@/components/screens/Editor";
+import Box from "@/components/ui/Box";
+import React from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const Posts = () => {
   return (
-    <SafeAreaView>
-      <Text>Posts Screen</Text>
+    <SafeAreaView style={{ flex: 1 }}>
+      <Box flex={1}>
+        <Editor />
+      </Box>
     </SafeAreaView>
-  )
-}
+  );
+};
 
-export default Posts
+export default Posts;
