@@ -19,8 +19,11 @@ import { RootState } from "@/states";
 import { setToken } from "@/states/slices/token.reducer";
 import { updateDetails } from "@/states/slices/user.reducer";
 import { Theme } from "@/utils/theme";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useDispatch, useSelector } from "react-redux";
 import { Toast } from "toastify-react-native";
+
+import { TOKEN_KEY } from "@/modules/repositories/api-client";
 
 interface IProps {
   onVerified: () => void;
@@ -126,7 +129,9 @@ const OtpVerificationScreen = ({ onVerified }: IProps) => {
         // Dispatch action to update user state
         dispatch(updateDetails(data?.data?.user));
         dispatch(setToken(data?.data?.access_token));
-        // SecureStore.setItemAsync(TOKEN_KEY, data?.data?.access_token || "");
+        if (data?.data?.access_token) {
+          AsyncStorage.setItem(TOKEN_KEY, data.data.access_token);
+        }
         onVerified();
       })
       .catch(() => {

@@ -1,10 +1,18 @@
 import CustomText from "@/components/ui/CustomText";
+import { useSocialMedia } from "@/hooks/useSocialMedia";
+import { useUserAuth } from "@/hooks/useUserAuth";
+import { TOKEN_KEY } from "@/modules/repositories/api-client";
+import { SocialPlatform } from "@/modules/types/SocialMediaTypes";
 import { darkModeAtom } from "@/states/atoms/dark-mode-state";
+import { reset } from "@/states/slices/token.reducer";
 import { Theme } from "@/utils/theme";
 import { initials } from "@dicebear/collection";
 import { createAvatar } from "@dicebear/core";
 import { FontAwesome } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createBox, useTheme } from "@shopify/restyle";
+import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import {
   ArrowRight2,
   Card,
@@ -14,9 +22,11 @@ import {
 } from "iconsax-react-nativejs";
 import { useAtom } from "jotai";
 import React, { useMemo, useState } from "react";
-import { Pressable, ScrollView, Switch } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { SvgXml } from "react-native-svg";
+import { useDispatch } from "react-redux";
+import { Toast } from "toastify-react-native";
 
 const Box = createBox<Theme>();
 
@@ -24,38 +34,119 @@ const Settings = () => {
   const theme = useTheme<Theme>();
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [darkMode, setDarkMode] = useAtom(darkModeAtom);
+  const dispatch = useDispatch();
+
+  const { useUserDetails } = useUserAuth();
+  const { data: userDetails } = useUserDetails();
+  const userId = userDetails?.data?._id;
+
+  const {
+    useGetConnectedAccounts,
+    getConnectFacebookUrl,
+    disconnectAccountMutation,
+  } = useSocialMedia();
+  const {
+    data: accountsData,
+    isLoading: isLoadingAccounts,
+    refetch: refetchAccounts,
+  } = useGetConnectedAccounts({
+    userId: userId || "",
+  });
+
+  const handleLogout = async () => {
+    try {
+      await AsyncStorage.removeItem(TOKEN_KEY);
+      dispatch(reset());
+      // dispatch(resetUser());
+      router.replace("/login");
+    } catch (error) {
+      console.error("Logout Error:", error);
+      Toast.error("Failed to logout");
+    }
+  };
 
   const handleToggleDarkMode = () => {
     setDarkMode(!darkMode);
   };
 
+  const handleConnect = async (platform: string) => {
+    console.log("Handle Connect:", platform, userId);
+    if (!userId) {
+      Toast.error("User ID not found. Please try logging in again.");
+      return;
+    }
+
+    if (platform === "Facebook") {
+      try {
+        // const redirectUrl =
+        //   "https://pagixservernew-production.up.railway.app/social-account/facebook/callback";
+        const url = await getConnectFacebookUrl(userId);
+        console.log(`RETURNED URL`, url);
+        const result = await WebBrowser.openAuthSessionAsync(url?.url);
+        if (result.type === "success") {
+          refetchAccounts();
+        }
+      } catch (error) {
+        console.error("Error connecting Facebook:", error);
+      }
+    } else {
+      Toast.warn("Only Facebook connection is currently supported.");
+    }
+  };
+
+  const handleDisconnect = (account: any) => {
+    disconnectAccountMutation.mutate(
+      { id: account._id },
+      {
+        onSuccess: () => {
+          Toast.success("Account disconnected");
+          refetchAccounts();
+        },
+        onError: () => {
+          Toast.error("Failed to disconnect account");
+        },
+      },
+    );
+  };
+
   const avatar = useMemo(() => {
     return createAvatar(initials, {
-      seed: "John Doe",
+      seed: userDetails?.data?.firstName || "User",
       fontFamily: ["Arial", "Verdana"],
     }).toString();
-  }, []);
+  }, [userDetails]);
 
-  const connectedAccounts = [
+  const platformDefinitions = [
     {
-      id: 1,
       name: "Facebook",
       icon: <FontAwesome name="facebook" size={20} color="#1877F2" />,
-      connected: true,
+      platformEnum: SocialPlatform.FACEBOOK,
     },
     {
-      id: 2,
       name: "Instagram",
       icon: <FontAwesome name="instagram" size={20} color="#E4405F" />,
-      connected: true,
+      platformEnum: SocialPlatform.INSTAGRAM,
     },
     {
-      id: 3,
       name: "Twitter",
       icon: <FontAwesome name="twitter" size={20} color="#1DA1F2" />,
-      connected: false,
+      platformEnum: SocialPlatform.TWITTER,
     },
   ];
+
+  const connectedAccounts = useMemo(() => {
+    const connected = accountsData?.data || [];
+    return platformDefinitions.map((def) => {
+      const found = connected.find(
+        (acc) => acc.platform === def.platformEnum && !acc.isRevoked,
+      );
+      return {
+        ...def,
+        connected: !!found,
+        accountData: found,
+      };
+    });
+  }, [accountsData, platformDefinitions]);
 
   return (
     <SafeAreaView
@@ -111,10 +202,10 @@ const Settings = () => {
               </Box>
               <Box>
                 <CustomText variant="medium" fontWeight="bold">
-                  John Doe
+                  {userDetails?.data?.firstName} {userDetails?.data?.lastName}
                 </CustomText>
                 <CustomText variant="body" color="bodyTextColor" opacity={0.6}>
-                  john.doe@email.com
+                  {userDetails?.data?.email}
                 </CustomText>
               </Box>
             </Box>
@@ -142,50 +233,69 @@ const Settings = () => {
               borderColor="borderColor"
               overflow="hidden"
             >
-              {connectedAccounts.map((account, index) => (
-                <Box
-                  key={account.id}
-                  flexDirection="row"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  padding="m"
-                  borderBottomWidth={
-                    index !== connectedAccounts.length - 1 ? 1 : 0
-                  }
-                  borderBottomColor="borderColor"
-                >
-                  <Box flexDirection="row" alignItems="center" gap="m">
-                    <Box width={24} alignItems="center">
-                      {account.icon}
-                    </Box>
-                    <CustomText variant="body" fontWeight="500">
-                      {account.name}
-                    </CustomText>
-                  </Box>
-                  <Box
-                    paddingHorizontal="s"
-                    paddingVertical="s"
-                    borderRadius={12}
-                    opacity={account.connected ? 1 : 0.5}
-                    style={{
-                      backgroundColor: account.connected
-                        ? "#E8F5E9"
-                        : "#F5F5F5",
-                    }}
-                  >
-                    <CustomText
-                      variant="body"
-                      fontWeight="bold"
-                      style={{
-                        color: account.connected ? "#2E7D32" : "#757575",
-                        fontSize: 12,
-                      }}
-                    >
-                      {account.connected ? "Connected" : "Not Connected"}
-                    </CustomText>
-                  </Box>
+              {isLoadingAccounts ? (
+                <Box padding="m" alignItems="center">
+                  <ActivityIndicator
+                    size="small"
+                    color={theme.colors.primaryColor}
+                  />
                 </Box>
-              ))}
+              ) : (
+                connectedAccounts.map((account, index) => (
+                  <Box
+                    key={account.name}
+                    flexDirection="row"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    padding="m"
+                    borderBottomWidth={
+                      index !== connectedAccounts.length - 1 ? 1 : 0
+                    }
+                    borderBottomColor="borderColor"
+                  >
+                    <Box flexDirection="row" alignItems="center" gap="m">
+                      <Box width={24} alignItems="center">
+                        {account.icon}
+                      </Box>
+                      <CustomText variant="body" fontWeight="500">
+                        {account.name}
+                      </CustomText>
+                    </Box>
+                    <Pressable
+                      onPress={() =>
+                        account.connected
+                          ? handleDisconnect(account.accountData)
+                          : handleConnect(account.name)
+                      }
+                      style={({ pressed }) => ({
+                        opacity: pressed ? 0.7 : 1,
+                      })}
+                    >
+                      <Box
+                        paddingHorizontal="s"
+                        paddingVertical="s"
+                        borderRadius={12}
+                        style={{
+                          backgroundColor: account.connected
+                            ? "#E8F5E9"
+                            : "#E3F2FD",
+                        }}
+                      >
+                        <CustomText
+                          variant="body"
+                          fontWeight="bold"
+                          style={{
+                            color: account.connected ? "#2E7D32" : "#1976D2",
+                            fontSize: 12,
+                          }}
+                        >
+                          {account.connected ? "Connected" : "Connect"}
+                        </CustomText>
+                      </Box>
+                    </Pressable>
+                  </Box>
+                ))
+              )}
             </Box>
           </Box>
 
@@ -305,6 +415,7 @@ const Settings = () => {
 
           {/* Logout Button */}
           <Pressable
+            onPress={handleLogout}
             style={({ pressed }) => ({
               backgroundColor: "#FF3B30",
               paddingVertical: 16,

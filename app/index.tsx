@@ -23,6 +23,7 @@ export default function Index() {
   const dispatch = useDispatch();
 
   useEffect(() => {
+    console.log("Index Check:", { token: !!token, data: !!data, isError, isLoading });
     if (!token) return;
     if (token && data?.data && !isError && !isLoading) {
       console.log("DATA", data?.data);

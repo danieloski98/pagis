@@ -1,5 +1,6 @@
 import config from "@/utils/config";
-import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios, { AxiosRequestConfig, isAxiosError } from "axios";
 import { Toast } from "toastify-react-native";
 
 export const TOKEN_KEY = "authToken";
@@ -18,11 +19,10 @@ export class ApiClient {
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
-    this.token = SecureStore.getItem(TOKEN_KEY);
   }
 
-  setToken(token: string) {
-    SecureStore.setItem(TOKEN_KEY, token);
+  async setToken(token: string) {
+    await AsyncStorage.setItem(TOKEN_KEY, token);
     this.token = token;
   }
 
@@ -30,14 +30,22 @@ export class ApiClient {
     return this.token;
   }
 
-  private getHeaders(config?: RequestConfig): Record<string, string> {
+  private async getHeaders(
+    config?: RequestConfig,
+  ): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...config?.headers,
     };
 
-    if (this.token) {
-      headers["Authorization"] = `Bearer ${this.token}`;
+    let token = this.token;
+    if (!token) {
+      token = await AsyncStorage.getItem(TOKEN_KEY);
+      if (token) this.token = token;
+    }
+
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
     }
 
     return headers;
@@ -46,43 +54,38 @@ export class ApiClient {
   async request<T>(endpoint: string, config?: RequestConfig): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     console.log("[v0] API Request:", url);
-    const options: RequestInit = {
+
+    const headers = await this.getHeaders(config);
+
+    const axiosConfig: AxiosRequestConfig = {
       method: config?.method || "GET",
-      headers: this.getHeaders(config),
+      url: url,
+      headers: headers,
+      data: config?.body,
     };
 
-    if (config?.body) {
-      options.body = JSON.stringify(config.body);
-    }
-
     try {
-      const response = await fetch(url, options);
+      const response = await axios(axiosConfig);
       console.log(" API Response Status:", response.status);
+      console.log(" API Response:", response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error(" API Request failed:", endpoint, error);
 
-      if (!response.ok) {
-        let errorData: any;
-        try {
-          errorData = await response.json();
-        } catch {
-          errorData = { message: response.statusText };
-        }
-        const errorMessage =
+      let errorMessage = "An unexpected error occurred";
+
+      if (isAxiosError(error)) {
+        const errorData = error.response?.data;
+        errorMessage =
           errorData?.message ||
           errorData?.error ||
-          `API Error: ${response.status}`;
-        console.error(" API Error:", errorMessage);
-        Toast.error(errorMessage);
-        throw new Error(errorMessage);
+          `API Error: ${error.response?.status || "Unknown"}`;
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
       }
 
-      const data = await response.json();
-      console.log(" API Response:", data);
-      return data;
-    } catch (error) {
-      console.error(" API Request failed:", endpoint, error);
-      Toast.error(
-        error instanceof Error ? error.message : "An unexpected error occurred"
-      );
+      console.error(" API Error:", errorMessage);
+      Toast.error(errorMessage);
       throw error;
     }
   }
@@ -106,7 +109,7 @@ export class ApiClient {
   async uploadFile<T>(
     endpoint: string,
     file: File,
-    fieldName: string = "file"
+    fieldName: string = "file",
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     console.log("[v0] API Upload Request:", url);

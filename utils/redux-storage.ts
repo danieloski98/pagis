@@ -1,17 +1,17 @@
-import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Storage } from "redux-persist";
 
 const reduxStorage: Storage = {
   setItem: async (key, value) => {
-    await SecureStore.setItemAsync(key, value);
+    await AsyncStorage.setItem(key, value);
     return Promise.resolve(true);
   },
   getItem: async (key) => {
-    const value = await SecureStore.getItemAsync(key);
+    const value = await AsyncStorage.getItem(key);
     return Promise.resolve(value);
   },
   removeItem: async (key) => {
-    await SecureStore.deleteItemAsync(key);
+    await AsyncStorage.removeItem(key);
     return Promise.resolve();
   },
 };
