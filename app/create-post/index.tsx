@@ -93,11 +93,7 @@ const CreatePostSelection = () => {
             </Box>
           </Pressable>
 
-          <Pressable
-            onPress={() => {
-              /* Image post flow not implemented yet */
-            }}
-          >
+          <Pressable onPress={() => router.push("/create-post/image" as any)}>
             <Box
               backgroundColor="mainBackgroundColor"
               padding="l"

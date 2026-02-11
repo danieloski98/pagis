@@ -22,6 +22,8 @@ export const ROUTES = {
     deletePost: (id: string) => `/posts/${id}/delete`,
     publishDraftPost: (id: string) => `/posts/${id}/publish`,
     generateContent: '/posts/ai/generate',
+    generateContentPlan: '/posts/ai/generate-plan',
+    generateImagePost: '/posts/ai/generate-image-post',
     getCategories: '/categories',
     getImages: '/images',
 }

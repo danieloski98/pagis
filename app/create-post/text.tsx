@@ -1,7 +1,6 @@
 import Box from "@/components/ui/Box";
 import Button from "@/components/ui/Button";
 import CustomText from "@/components/ui/CustomText";
-import CustomTextInput from "@/components/ui/TextInput";
 import { useAI } from "@/hooks/useAI";
 import { usePosts } from "@/hooks/usePosts";
 import { useSocialMedia } from "@/hooks/useSocialMedia";
@@ -13,17 +12,14 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "@shopify/restyle";
 import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
-import { Formik } from "formik";
 import { ArrowLeft, Magicpen } from "iconsax-react-nativejs";
-import React, { useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   ScrollView,
-  Switch,
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
@@ -31,80 +27,151 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Toast } from "toastify-react-native";
-import * as Yup from "yup";
+
+type PlannedPost = {
+  id: string;
+  body: string;
+  scheduledAt: string;
+  approved: boolean;
+};
+
+type StepCardProps = {
+  step: string;
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+};
+
+const platformOptions = [
+  {
+    name: "Facebook",
+    icon: "facebook",
+    value: SocialPlatform.FACEBOOK,
+    color: "#1877F2",
+  },
+  {
+    name: "Instagram",
+    icon: "instagram",
+    value: SocialPlatform.INSTAGRAM,
+    color: "#E4405F",
+  },
+  {
+    name: "Twitter",
+    icon: "twitter",
+    value: SocialPlatform.TWITTER,
+    color: "#1DA1F2",
+  },
+];
 
 const TextPost = () => {
   const router = useRouter();
   const theme = useTheme<Theme>();
-  const [platforms, setPlatforms] = useState<SocialPlatform[]>([]);
+  const { createPostMutation } = usePosts();
+  const { generateContentPlanMutation } = useAI();
+  const { useGetConnectedAccounts, getConnectFacebookUrl } = useSocialMedia();
   const { useUserDetails } = useUserAuth();
+
   const { data: userDetails } = useUserDetails();
   const userId = userDetails?.data?._id;
-  const { createPostMutation } = usePosts();
-  const { generateContentMutation } = useAI();
-  const { useGetConnectedAccounts, getConnectFacebookUrl } = useSocialMedia();
-  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  const { data: connectedAccountsData, refetch: refetchConnectedAccounts } =
+    useGetConnectedAccounts({
+      userId: userId || "",
+      page: 1,
+      limit: 50,
+    });
+
+  const connectedAccounts = connectedAccountsData?.data || [];
+  const [platforms, setPlatforms] = useState<SocialPlatform[]>([]);
   const [isPromptSheetVisible, setIsPromptSheetVisible] = useState(false);
   const [promptText, setPromptText] = useState("");
-  const setFieldValueRef = useRef<
-    ((field: string, value: any, shouldValidate?: boolean) => void) | null
+  const [plannedPosts, setPlannedPosts] = useState<PlannedPost[]>([]);
+  const [activeDatePickerPostId, setActiveDatePickerPostId] = useState<
+    string | null
   >(null);
+  const [isScheduling, setIsScheduling] = useState(false);
 
-  const {
-    data: connectedAccountsData,
-    refetch: refetchConnectedAccounts,
-  } = useGetConnectedAccounts({
-    userId: userId || "",
-    page: 1,
-    limit: 50,
-  });
-  const connectedAccounts = connectedAccountsData?.data || [];
+  const approvedPosts = useMemo(
+    () => plannedPosts.filter((post) => post.approved),
+    [plannedPosts],
+  );
+
+  const StepCard = ({ step, title, subtitle, children }: StepCardProps) => (
+    <Box
+      marginBottom="l"
+      borderWidth={1}
+      borderColor="borderColor"
+      borderRadius={14}
+      padding="m"
+      backgroundColor="secondaryBackgroundColor"
+    >
+      <Box flexDirection="row" alignItems="center" marginBottom="s">
+        <Box
+          width={26}
+          height={26}
+          borderRadius={13}
+          backgroundColor="primaryColor"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <CustomText variant="body" color="white" style={{ fontWeight: "700" }}>
+            {step}
+          </CustomText>
+        </Box>
+        <CustomText variant="body" marginLeft="s" style={{ fontWeight: "700" }}>
+          {title}
+        </CustomText>
+      </Box>
+      <CustomText variant="body" color="bodyTextColor" marginBottom="m">
+        {subtitle}
+      </CustomText>
+      {children}
+    </Box>
+  );
 
   const togglePlatform = (platform: SocialPlatform) => {
-    if (platforms.includes(platform)) {
-      setPlatforms(platforms.filter((p) => p !== platform));
-    } else {
-      setPlatforms([...platforms, platform]);
-    }
+    setPlatforms((prev) =>
+      prev.includes(platform)
+        ? prev.filter((p) => p !== platform)
+        : [...prev, platform],
+    );
   };
 
-  const openPromptSheet = () => {
-    setPromptText("");
-    setIsPromptSheetVisible(true);
+  const togglePostApproval = (postId: string) => {
+    setPlannedPosts((prev) =>
+      prev.map((post) =>
+        post.id === postId ? { ...post, approved: !post.approved } : post,
+      ),
+    );
   };
 
-  const handleGenerateContent = () => {
+  const handleGeneratePlan = () => {
     const prompt = promptText.trim();
     if (!prompt) {
       Toast.error("Please enter a prompt");
       return;
     }
 
-    generateContentMutation.mutate(prompt, {
-      onSuccess: (data) => {
-        setFieldValueRef.current?.("body", data.data?.content ?? "");
-        Toast.success("Content generated successfully!");
+    generateContentPlanMutation.mutate(prompt, {
+      onSuccess: (response) => {
+        const posts = response.data?.posts ?? [];
+        if (!posts.length) {
+          Toast.error("No post plan returned from AI");
+          return;
+        }
+
+        const mappedPosts: PlannedPost[] = posts.map((post, index) => ({
+          id: `${Date.now()}-${index}`,
+          body: post.body,
+          scheduledAt: post.scheduledAt,
+          approved: true,
+        }));
+
+        setPlannedPosts(mappedPosts);
         setIsPromptSheetVisible(false);
-      },
-      onError: () => {
-        // Error toast handled in hook
+        Toast.success("Post plan generated");
       },
     });
-  };
-
-  const handleDateChange = (
-    event: any,
-    selectedDate?: Date,
-    setFieldValue?: (field: string, value: any) => void,
-  ) => {
-    setShowDatePicker(false);
-    if (selectedDate && setFieldValue) {
-      const formattedDate = selectedDate
-        .toISOString()
-        .slice(0, 16)
-        .replace("T", " ");
-      setFieldValue("scheduledAt", formattedDate);
-    }
   };
 
   const handleConnectPlatform = async (platform: SocialPlatform) => {
@@ -120,460 +187,446 @@ const TextPost = () => {
 
     try {
       const result = await getConnectFacebookUrl(userId);
-      const url = (result as any)?.url;
+      const url = (result as { url?: string })?.url;
       if (!url) {
         Toast.error("Failed to start connection");
         return;
       }
       await WebBrowser.openBrowserAsync(url);
       await refetchConnectedAccounts();
-    } catch (error) {
+    } catch {
       Toast.error("Failed to connect account");
     }
   };
 
-  const validationSchema = Yup.object().shape({
-    body: Yup.string().required("Content is required"),
-    scheduledAt: Yup.string().when("isScheduled", {
-      is: true,
-      then: (schema) => schema.required("Date is required (YYYY-MM-DD HH:mm)"),
-      otherwise: (schema) => schema.notRequired(),
-    }),
-  });
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    const selectedPostId = activeDatePickerPostId;
+    setActiveDatePickerPostId(null);
 
-  const handlePublish = (values: any) => {
+    if (!selectedDate || !selectedPostId || event?.type === "dismissed") return;
+
+    setPlannedPosts((prev) =>
+      prev.map((post) =>
+        post.id === selectedPostId
+          ? { ...post, scheduledAt: selectedDate.toISOString() }
+          : post,
+      ),
+    );
+  };
+
+  const handleScheduleApprovedPosts = async () => {
     if (!userId) {
       Toast.error("User not found");
       return;
     }
+
     if (platforms.length === 0) {
-      Toast.error("Please select at least one platform");
+      Toast.error("Select at least one platform");
       return;
     }
 
-    const payload = {
-      userId,
-      body: values.body,
-      platform: platforms,
-      scheduledAt: values.isScheduled
-        ? new Date(values.scheduledAt).toISOString()
-        : undefined, // Don't include scheduledAt for drafts
-    };
+    if (!approvedPosts.length) {
+      Toast.error("Approve at least one generated post");
+      return;
+    }
 
-    createPostMutation.mutate(payload, {
-      onSuccess: () => {
-        router.push("/dashboard/home/posts");
-      },
-    });
+    setIsScheduling(true);
+    try {
+      for (const post of approvedPosts) {
+        await createPostMutation.mutateAsync({
+          userId,
+          body: post.body,
+          platform: platforms,
+          scheduledAt: post.scheduledAt,
+        });
+      }
+      Toast.success("Approved posts scheduled");
+      router.push("/dashboard/home/posts");
+    } catch {
+      Toast.error("Failed to schedule one or more posts");
+    } finally {
+      setIsScheduling(false);
+    }
   };
 
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: theme.colors.mainBackgroundColor }}
     >
-      <Formik
-        initialValues={{ body: "", isScheduled: false, scheduledAt: "" }}
-        validationSchema={validationSchema}
-        onSubmit={handlePublish}
-      >
-        {({ handleSubmit, values, setFieldValue, isSubmitting }) => {
-          setFieldValueRef.current = setFieldValue;
-          return (
-            <Box flex={1} padding="m">
-            {/* Header */}
-            <Box flexDirection="row" alignItems="center" marginBottom="l">
-              <TouchableOpacity onPress={() => router.back()}>
-                <ArrowLeft size={24} color={theme.colors.headerTextColor} />
-              </TouchableOpacity>
-              <CustomText variant="header" marginLeft="m">
-                Text Post
-              </CustomText>
-              <Box flex={1} />
-              {/* Optional: Add save draft button in header or below */}
-            </Box>
+      <Box flex={1} padding="m">
+        <Box flexDirection="row" alignItems="center" marginBottom="l">
+          <TouchableOpacity onPress={() => router.back()}>
+            <ArrowLeft size={24} color={theme.colors.headerTextColor} />
+          </TouchableOpacity>
+          <CustomText variant="header" marginLeft="m">
+            Text Post Plan
+          </CustomText>
+        </Box>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Post Content */}
-              <Box marginBottom="l">
-                <CustomText variant="body" marginBottom="s">
-                  Post Content
-                </CustomText>
-                <CustomTextInput
-                  name="body"
-                  placeholder="What's on your mind?"
-                  multiline
-                  numberOfLines={6}
-                  height={150}
-                  textAlignVertical="top"
-                  style={{ paddingTop: 10 }}
-                />
-                <Box
-                  flexDirection="row"
-                  justifyContent="flex-end"
-                  marginTop="s"
-                >
-                  <Pressable
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      backgroundColor: theme.colors.primaryColor,
-                      paddingHorizontal: 12,
-                      paddingVertical: 8,
-                      borderRadius: 20,
-                      opacity: generateContentMutation.isPending ? 0.7 : 1,
-                    }}
-                    onPress={openPromptSheet}
-                    disabled={generateContentMutation.isPending}
-                  >
-                    {generateContentMutation.isPending ? (
-                      <ActivityIndicator size="small" color="white" />
-                    ) : (
-                      <>
-                        <Magicpen size={16} color="white" variant="Bold" />
-                        <CustomText
-                          variant="body"
-                          color="white"
-                          fontSize={12}
-                          marginLeft="s"
-                        >
-                          Generate with AI
-                        </CustomText>
-                      </>
-                    )}
-                  </Pressable>
-                </Box>
-              </Box>
-
-              {/* Select Platform */}
-              <Box marginBottom="l">
-                <CustomText variant="body" marginBottom="s">
-                  Select Platform
-                </CustomText>
-                {connectedAccounts.length > 0 ? (
-                  <Box
-                    flexDirection="row"
-                    style={{ flexWrap: "wrap", gap: 12 }}
-                  >
-                    {connectedAccounts.map((acc) => {
-                      const isSelected = platforms.includes(acc.platform);
-                      return (
-                        <Pressable
-                          key={acc._id}
-                          onPress={() => togglePlatform(acc.platform)}
-                          style={{
-                            padding: 12,
-                            borderRadius: 12,
-                            borderWidth: 1,
-                            borderColor: isSelected
-                              ? theme.colors.primaryColor
-                              : theme.colors.borderColor,
-                            backgroundColor: isSelected
-                              ? theme.colors.secondaryBackgroundColor
-                              : theme.colors.mainBackgroundColor,
-                            minWidth: 120,
-                          }}
-                        >
-                          <CustomText
-                            variant="body"
-                            fontSize={12}
-                            fontWeight="bold"
-                            color={
-                              isSelected ? "headerTextColor" : "bodyTextColor"
-                            }
-                          >
-                            {acc.accountHandle}
-                          </CustomText>
-                          <CustomText
-                            variant="body"
-                            fontSize={10}
-                            marginTop="s"
-                            color="bodyTextColor"
-                          >
-                            {acc.platform}
-                          </CustomText>
-                        </Pressable>
-                      );
-                    })}
-                  </Box>
-                ) : (
-                  <Box gap="m">
-                    <CustomText variant="body" color="bodyTextColor">
-                      Connect a platform to enable posting.
-                    </CustomText>
-                    <Box flexDirection="row" gap="m">
-                      {[
-                        {
-                          name: "Facebook",
-                          icon: "facebook",
-                          value: SocialPlatform.FACEBOOK,
-                          color: "#1877F2",
-                        },
-                        {
-                          name: "Instagram",
-                          icon: "instagram",
-                          value: SocialPlatform.INSTAGRAM,
-                          color: "#E4405F",
-                        },
-                        {
-                          name: "Twitter",
-                          icon: "twitter",
-                          value: SocialPlatform.TWITTER,
-                          color: "#1DA1F2",
-                        },
-                      ].map((p) => (
-                        <Pressable
-                          key={p.name}
-                          onPress={() => handleConnectPlatform(p.value)}
-                          style={{
-                            padding: 12,
-                            borderRadius: 12,
-                            borderWidth: 1,
-                            borderColor: theme.colors.borderColor,
-                            backgroundColor: theme.colors.mainBackgroundColor,
-                            alignItems: "center",
-                            minWidth: 80,
-                          }}
-                        >
-                          <FontAwesome
-                            name={p.icon as any}
-                            size={24}
-                            color={p.color}
-                          />
-                          <CustomText
-                            variant="body"
-                            fontSize={10}
-                            marginTop="s"
-                            color="bodyTextColor"
-                          >
-                            {p.name}
-                          </CustomText>
-                        </Pressable>
-                      ))}
-                    </Box>
-                  </Box>
-                )}
-              </Box>
-
-              {/* Schedule Post */}
-              <Box
-                flexDirection="row"
-                alignItems="center"
-                justifyContent="space-between"
-                marginBottom="l"
-                padding="m"
-                backgroundColor="secondaryBackgroundColor"
-                borderRadius={12}
-              >
-                <Box flexDirection="row" alignItems="center" gap="s">
-                  <CustomText variant="body" fontWeight="bold">
-                    Schedule Post
-                  </CustomText>
-                </Box>
-                <Switch
-                  value={values.isScheduled}
-                  onValueChange={(val) => {
-                    setFieldValue("isScheduled", val);
-                  }}
-                  trackColor={{
-                    false: theme.colors.borderColor,
-                    true: theme.colors.primaryColor,
-                  }}
-                />
-              </Box>
-
-              {/* Date Picker */}
-              {values.isScheduled && (
-                <Box marginBottom="l">
-                  <CustomText variant="body" marginBottom="s">
-                    Date & Time
-                  </CustomText>
-                  <Pressable
-                    onPress={() => setShowDatePicker(true)}
-                    style={{
-                      padding: 12,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: theme.colors.borderColor,
-                      backgroundColor: theme.colors.mainBackgroundColor,
-                    }}
-                  >
-                    <CustomText variant="body" color="bodyTextColor">
-                      {values.scheduledAt || "Select date and time"}
-                    </CustomText>
-                  </Pressable>
-                  {showDatePicker && (
-                    <DateTimePicker
-                      value={
-                        values.scheduledAt
-                          ? new Date(values.scheduledAt)
-                          : new Date()
-                      }
-                      mode="datetime"
-                      display={Platform.OS === "ios" ? "spinner" : "default"}
-                      onChange={(event, selectedDate) =>
-                        handleDateChange(event, selectedDate, setFieldValue)
-                      }
-                      minimumDate={new Date()}
-                    />
-                  )}
-                </Box>
-              )}
-
-              {/* Actions */}
-              <Box flexDirection="row" gap="m" marginTop="l" marginBottom="xl">
-                <Pressable
-                  style={{
-                    flex: 1,
-                    padding: 16,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: theme.colors.borderColor,
-                    alignItems: "center",
-                  }}
-                  onPress={() => {
-                    // Set isScheduled to false to save as draft
-                    setFieldValue("isScheduled", false);
-                    setFieldValue("scheduledAt", "");
-                    setTimeout(() => handleSubmit(), 100);
-                  }}
-                >
-                  <CustomText variant="body" fontWeight="bold">
-                    Save as Draft
-                  </CustomText>
-                </Pressable>
-                <Pressable
-                  style={{
-                    flex: 1,
-                    padding: 16,
-                    borderRadius: 12,
-                    backgroundColor: theme.colors.buttonBgColor,
-                    alignItems: "center",
-                    opacity: createPostMutation.isPending ? 0.7 : 1,
-                  }}
-                  onPress={() => handleSubmit()}
-                  disabled={createPostMutation.isPending}
-                >
-                  {createPostMutation.isPending ? (
-                    <ActivityIndicator color="white" />
-                  ) : (
-                    <CustomText variant="body" fontWeight="bold" color="white">
-                      {values.isScheduled ? "Schedule" : "Publish Now"}
-                    </CustomText>
-                  )}
-                </Pressable>
-              </Box>
-            </ScrollView>
-            <Modal
-              visible={isPromptSheetVisible}
-              transparent
-              animationType="slide"
-              onRequestClose={() => setIsPromptSheetVisible(false)}
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <Box
+            marginBottom="l"
+            flexDirection="row"
+            style={{ flexWrap: "wrap", gap: 8 }}
+          >
+            <Box
+              paddingHorizontal="m"
+              paddingVertical="s"
+              borderRadius={999}
+              backgroundColor="secondaryBackgroundColor"
+              borderWidth={1}
+              borderColor="borderColor"
             >
-              <View style={{ flex: 1, justifyContent: "flex-end" }}>
-                <TouchableWithoutFeedback
-                  onPress={() => setIsPromptSheetVisible(false)}
-                >
-                  <View
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      backgroundColor: "rgba(0,0,0,0.45)",
-                    }}
-                  />
-                </TouchableWithoutFeedback>
-                <KeyboardAvoidingView
-                  behavior={Platform.OS === "ios" ? "padding" : undefined}
-                >
-                  <Box
-                    backgroundColor="mainBackgroundColor"
-                    padding="m"
-                    style={{
-                      borderTopLeftRadius: 24,
-                      borderTopRightRadius: 24,
-                      borderWidth: 1,
-                      borderColor: theme.colors.borderColor,
-                      shadowColor: theme.colors.black,
-                      shadowOffset: { width: 0, height: -2 },
-                      shadowOpacity: 0.08,
-                      shadowRadius: 12,
-                      elevation: 10,
-                    }}
-                  >
-                    <Box alignItems="center" marginBottom="m">
-                      <View
-                        style={{
-                          width: 52,
-                          height: 6,
-                          borderRadius: 4,
-                          backgroundColor: theme.colors.borderColor,
-                        }}
-                      />
-                    </Box>
-                    <CustomText variant="regularHeader" marginBottom="s">
-                      AI Prompt
-                    </CustomText>
-                    <CustomText
-                      variant="body"
-                      color="bodyTextColor"
-                      marginBottom="m"
-                    >
-                      Tell the AI what to write, include tone and audience if
-                      helpful.
-                    </CustomText>
-                    <Box
-                      borderWidth={1}
-                      borderColor="borderColor"
-                      borderRadius={14}
-                      padding="m"
-                      backgroundColor="secondaryBackgroundColor"
-                      marginBottom="m"
-                    >
-                      <TextInput
-                        value={promptText}
-                        onChangeText={setPromptText}
-                        placeholder="Example: Write a friendly launch post for our new app update."
-                        placeholderTextColor={theme.colors.bodyTextColor}
-                        multiline
-                        numberOfLines={4}
-                        style={{
-                          minHeight: 120,
-                          color: theme.colors.headerTextColor,
-                          textAlignVertical: "top",
-                        }}
-                      />
-                    </Box>
-                    <Button
-                      title="Generate"
-                      onPress={handleGenerateContent}
-                      isLoading={generateContentMutation.isPending}
-                      disabled={generateContentMutation.isPending}
-                    />
+              <CustomText variant="body" color="bodyTextColor">
+                Planned: {plannedPosts.length}
+              </CustomText>
+            </Box>
+            <Box
+              paddingHorizontal="m"
+              paddingVertical="s"
+              borderRadius={999}
+              backgroundColor="secondaryBackgroundColor"
+              borderWidth={1}
+              borderColor="borderColor"
+            >
+              <CustomText variant="body" color="bodyTextColor">
+                Approved: {approvedPosts.length}
+              </CustomText>
+            </Box>
+            <Box
+              paddingHorizontal="m"
+              paddingVertical="s"
+              borderRadius={999}
+              backgroundColor="secondaryBackgroundColor"
+              borderWidth={1}
+              borderColor="borderColor"
+            >
+              <CustomText variant="body" color="bodyTextColor">
+                Platforms: {platforms.length}
+              </CustomText>
+            </Box>
+          </Box>
+
+          <StepCard
+            step="1"
+            title="Generate Plan"
+            subtitle="Describe volume and timeframe. AI will propose post text and schedule times."
+          >
+            <Pressable
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: theme.colors.primaryColor,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderRadius: 20,
+                alignSelf: "flex-start",
+                opacity: generateContentPlanMutation.isPending ? 0.7 : 1,
+              }}
+              onPress={() => setIsPromptSheetVisible(true)}
+              disabled={generateContentPlanMutation.isPending}
+            >
+              <Magicpen size={16} color="white" variant="Bold" />
+              <CustomText
+                variant="body"
+                color="white"
+                fontSize={12}
+                marginLeft="s"
+              >
+                Generate with AI
+              </CustomText>
+            </Pressable>
+          </StepCard>
+
+          <StepCard
+            step="2"
+            title="Select Platforms"
+            subtitle="Pick where approved posts should be scheduled."
+          >
+            {connectedAccounts.length > 0 ? (
+              <Box flexDirection="row" style={{ flexWrap: "wrap", gap: 12 }}>
+                {connectedAccounts.map((acc) => {
+                  const isSelected = platforms.includes(acc.platform);
+                  return (
                     <Pressable
-                      onPress={() => setIsPromptSheetVisible(false)}
+                      key={acc._id}
+                      onPress={() => togglePlatform(acc.platform)}
                       style={{
-                        alignItems: "center",
-                        paddingBottom: 8,
+                        padding: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: isSelected
+                          ? theme.colors.primaryColor
+                          : theme.colors.borderColor,
+                        backgroundColor: isSelected
+                          ? theme.colors.secondaryBackgroundColor
+                          : theme.colors.mainBackgroundColor,
+                        minWidth: 120,
                       }}
                     >
                       <CustomText
                         variant="body"
-                        color="bodyTextColor"
-                        style={{ fontWeight: "600" }}
+                        fontSize={12}
+                        fontWeight="bold"
+                        color={isSelected ? "headerTextColor" : "bodyTextColor"}
                       >
-                        Cancel
+                        {acc.accountHandle}
+                      </CustomText>
+                      <CustomText
+                        variant="body"
+                        fontSize={10}
+                          marginTop="s"
+                          color="bodyTextColor"
+                        >
+                          {acc.platform}
+                        </CustomText>
+                        <CustomText
+                          variant="body"
+                          fontSize={10}
+                          marginTop="s"
+                          color={isSelected ? "primaryColor" : "bodyTextColor"}
+                          style={{ fontWeight: "700" }}
+                        >
+                          {isSelected ? "Selected" : "Tap to select"}
+                        </CustomText>
+                      </Pressable>
+                    );
+                })}
+              </Box>
+            ) : (
+              <Box gap="m">
+                <CustomText variant="body" color="bodyTextColor">
+                  Connect a platform first. After successful connection, return and
+                  select it for scheduling.
+                </CustomText>
+                <Box flexDirection="row" gap="m">
+                  {platformOptions.map((p) => (
+                    <Pressable
+                      key={p.name}
+                      onPress={() => handleConnectPlatform(p.value)}
+                      style={{
+                        padding: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.colors.borderColor,
+                        backgroundColor: theme.colors.mainBackgroundColor,
+                        alignItems: "center",
+                        minWidth: 80,
+                      }}
+                    >
+                      <FontAwesome
+                        name={p.icon as any}
+                        size={24}
+                        color={p.color}
+                      />
+                      <CustomText
+                        variant="body"
+                        fontSize={10}
+                        marginTop="s"
+                        color="bodyTextColor"
+                      >
+                        {p.name}
                       </CustomText>
                     </Pressable>
+                  ))}
+                </Box>
+              </Box>
+            )}
+          </StepCard>
+
+          <StepCard
+            step="3"
+            title="Approve Posts"
+            subtitle="Review generated posts, adjust date/time, and approve what should be scheduled."
+          >
+            {!plannedPosts.length ? (
+              <Box
+                borderWidth={1}
+                borderColor="borderColor"
+                borderRadius={12}
+                padding="m"
+                backgroundColor="mainBackgroundColor"
+              >
+                <CustomText variant="body" color="bodyTextColor">
+                  No generated posts yet. Start by generating a plan.
+                </CustomText>
+              </Box>
+            ) : (
+              <Box gap="m">
+                {plannedPosts.map((post, index) => (
+                  <Box
+                    key={post.id}
+                    borderWidth={1}
+                    borderColor={post.approved ? "primaryColor" : "borderColor"}
+                    borderRadius={12}
+                    padding="m"
+                    backgroundColor={
+                      post.approved
+                        ? "secondaryBackgroundColor"
+                        : "mainBackgroundColor"
+                    }
+                  >
+                    <Box
+                      flexDirection="row"
+                      justifyContent="space-between"
+                      alignItems="center"
+                      marginBottom="s"
+                    >
+                      <CustomText variant="body" fontWeight="bold">
+                        Post {index + 1}
+                      </CustomText>
+                      <Pressable onPress={() => togglePostApproval(post.id)}>
+                        <CustomText
+                          variant="body"
+                          color={post.approved ? "primaryColor" : "bodyTextColor"}
+                          fontWeight="bold"
+                        >
+                          {post.approved ? "Approved" : "Not Approved"}
+                        </CustomText>
+                      </Pressable>
+                    </Box>
+                    <CustomText variant="body" color="headerTextColor">
+                      {post.body}
+                    </CustomText>
+                    <Box marginTop="m">
+                      <CustomText variant="body" color="bodyTextColor">
+                          {new Date(post.scheduledAt).toLocaleString()}
+                        </CustomText>
+                        <Pressable
+                          onPress={() => setActiveDatePickerPostId(post.id)}
+                          style={{ marginTop: 8 }}
+                      >
+                        <CustomText
+                          variant="body"
+                          color="primaryColor"
+                          fontWeight="bold"
+                        >
+                          Change date/time
+                        </CustomText>
+                      </Pressable>
+                    </Box>
                   </Box>
-                </KeyboardAvoidingView>
-              </View>
-            </Modal>
-          </Box>
-          );
-        }}
-      </Formik>
+                ))}
+              </Box>
+            )}
+          </StepCard>
+
+          <Button
+            title={`Schedule Approved (${approvedPosts.length})`}
+            onPress={handleScheduleApprovedPosts}
+            isLoading={isScheduling || createPostMutation.isPending}
+            disabled={!approvedPosts.length || !platforms.length}
+          />
+        </ScrollView>
+      </Box>
+
+      {activeDatePickerPostId && (
+        <DateTimePicker
+          value={
+            new Date(
+              plannedPosts.find((post) => post.id === activeDatePickerPostId)
+                ?.scheduledAt || new Date().toISOString(),
+            )
+          }
+          mode="datetime"
+          display={Platform.OS === "ios" ? "spinner" : "default"}
+          onChange={handleDateChange}
+          minimumDate={new Date()}
+        />
+      )}
+
+      <Modal
+        visible={isPromptSheetVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsPromptSheetVisible(false)}
+      >
+        <View style={{ flex: 1, justifyContent: "flex-end" }}>
+          <TouchableWithoutFeedback onPress={() => setIsPromptSheetVisible(false)}>
+            <View
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: "rgba(0,0,0,0.45)",
+              }}
+            />
+          </TouchableWithoutFeedback>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <Box
+              backgroundColor="mainBackgroundColor"
+              padding="m"
+              style={{
+                borderTopLeftRadius: 24,
+                borderTopRightRadius: 24,
+                borderWidth: 1,
+                borderColor: theme.colors.borderColor,
+              }}
+            >
+              <Box alignItems="center" marginBottom="m">
+                <View
+                  style={{
+                    width: 52,
+                    height: 6,
+                    borderRadius: 4,
+                    backgroundColor: theme.colors.borderColor,
+                  }}
+                />
+              </Box>
+              <CustomText variant="regularHeader" marginBottom="s">
+                AI Prompt
+              </CustomText>
+              <CustomText variant="body" color="bodyTextColor" marginBottom="m">
+                Ask for monthly/weekly quantity, audience, and tone.
+              </CustomText>
+              <Box
+                borderWidth={1}
+                borderColor="borderColor"
+                borderRadius={14}
+                padding="m"
+                backgroundColor="secondaryBackgroundColor"
+                marginBottom="m"
+              >
+                <TextInput
+                  value={promptText}
+                  onChangeText={setPromptText}
+                  placeholder="Describe how many posts and timeframe..."
+                  placeholderTextColor={theme.colors.bodyTextColor}
+                  multiline
+                  numberOfLines={4}
+                  style={{
+                    minHeight: 120,
+                    color: theme.colors.headerTextColor,
+                    textAlignVertical: "top",
+                  }}
+                />
+              </Box>
+              <Button
+                title="Generate Plan"
+                onPress={handleGeneratePlan}
+                isLoading={generateContentPlanMutation.isPending}
+                disabled={generateContentPlanMutation.isPending}
+              />
+              <Pressable
+                onPress={() => setIsPromptSheetVisible(false)}
+                style={{ alignItems: "center", paddingBottom: 8 }}
+              >
+                <CustomText
+                  variant="body"
+                  color="bodyTextColor"
+                  style={{ fontWeight: "600" }}
+                >
+                  Cancel
+                </CustomText>
+              </Pressable>
+            </Box>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };

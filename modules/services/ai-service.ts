@@ -6,6 +6,18 @@ export class AIService {
       body: { prompt },
     });
   }
+
+  async generateContentPlan(prompt: string) {
+    return aiRepository.generateContentPlan({
+      body: { prompt },
+    });
+  }
+
+  async generateImagePost(prompt: string, imageUrl: string) {
+    return aiRepository.generateImagePost({
+      body: { prompt, imageUrl },
+    });
+  }
 }
 
 export const aiService = new AIService();

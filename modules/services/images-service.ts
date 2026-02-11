@@ -7,7 +7,7 @@ const apiClient = new ApiClient();
 const repository = new ImagesRepository(apiClient);
 
 export class ImagesService {
-    async getImages(payload: IPayload<null, { page: number, categoryId: string }>) {
+    async getImages(payload: IPayload<null, { page?: number; limit?: number; categoryId?: string }>) {
         const response = await repository.getImages(payload) as IResponse<any>;
         return response;
     }

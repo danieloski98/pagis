@@ -7,8 +7,28 @@ export interface IGenerateContentDto {
   prompt: string;
 }
 
+export interface IGenerateImagePostDto {
+  prompt: string;
+  imageUrl: string;
+}
+
 export interface IGeneratedContent {
   content: string;
+}
+
+export interface IGeneratedPlanPost {
+  body: string;
+  scheduledAt: string;
+}
+
+export interface IGeneratedPlan {
+  posts: IGeneratedPlanPost[];
+}
+
+export interface IGeneratedImagePost {
+  body: string;
+  overlayText: string;
+  scheduledAt: string;
 }
 
 export class AIRepository {
@@ -22,6 +42,18 @@ export class AIRepository {
     payload: IPayload<IGenerateContentDto, null>,
   ): Promise<IResponse<IGeneratedContent>> {
     return this.apiClient.post(ROUTES.generateContent, payload.body);
+  }
+
+  async generateContentPlan(
+    payload: IPayload<IGenerateContentDto, null>,
+  ): Promise<IResponse<IGeneratedPlan>> {
+    return this.apiClient.post(ROUTES.generateContentPlan, payload.body);
+  }
+
+  async generateImagePost(
+    payload: IPayload<IGenerateImagePostDto, null>,
+  ): Promise<IResponse<IGeneratedImagePost>> {
+    return this.apiClient.post(ROUTES.generateImagePost, payload.body);
   }
 }
 
